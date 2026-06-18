@@ -21,8 +21,8 @@ export const SettingsView: React.FC = () => {
   const { user, profile, refreshProfile } = useAuth();
   const { categories, addCategory, updateCategory, deleteCategory } = useCategories();
   
-  const [supabaseUrl, setSupabaseUrl] = useState('');
-  const [supabaseKey, setSupabaseKey] = useState('');
+  const [supabaseUrl] = useState(() => import.meta.env.VITE_SUPABASE_URL || '');
+  const [supabaseKey] = useState(() => import.meta.env.VITE_SUPABASE_ANON_KEY ? '••••••••••••••••••••' : '');
   const [geminiKey, setGeminiKey] = useState(() => localStorage.getItem('VITE_GEMINI_API_KEY') || '');
   
   const [isSaved, setIsSaved] = useState(false);
@@ -149,9 +149,9 @@ export const SettingsView: React.FC = () => {
               <input
                 type="text"
                 value={supabaseUrl}
-                onChange={(e) => setSupabaseUrl(e.target.value)}
+                disabled
                 placeholder="https://your-supabase-project.supabase.co"
-                className="w-full text-xs border border-theme-divider rounded-xl px-3.5 py-2.5 bg-white text-foreground focus:outline-none focus:border-brand-indigo"
+                className="w-full text-xs border border-theme-divider rounded-xl px-3.5 py-2.5 bg-slate-50 text-brand-slate/60 focus:outline-none cursor-not-allowed font-semibold"
               />
             </div>
 
@@ -161,17 +161,23 @@ export const SettingsView: React.FC = () => {
               <input
                 type="password"
                 value={supabaseKey}
-                onChange={(e) => setSupabaseKey(e.target.value)}
+                disabled
                 placeholder="Enter Supabase anon public key"
-                className="w-full text-xs border border-theme-divider rounded-xl px-3.5 py-2.5 bg-white text-foreground focus:outline-none focus:border-brand-indigo"
+                className="w-full text-xs border border-theme-divider rounded-xl px-3.5 py-2.5 bg-slate-50 text-brand-slate/60 focus:outline-none cursor-not-allowed font-semibold"
               />
             </div>
           </div>
 
           <div className="flex justify-between items-center pt-2">
-            <div className="flex items-center gap-1 text-[10px] text-amber-600 bg-amber-50 border border-amber-100 px-2.5 py-1 rounded-full font-semibold">
-              <Database className="w-3.5 h-3.5" /> Mock Storage Active
-            </div>
+            {isSupabaseConfigured() ? (
+              <div className="flex items-center gap-1 text-[10px] text-emerald-600 bg-emerald-50 border border-emerald-100 px-2.5 py-1 rounded-full font-semibold">
+                <Database className="w-3.5 h-3.5" /> Supabase Connected
+              </div>
+            ) : (
+              <div className="flex items-center gap-1 text-[10px] text-amber-600 bg-amber-50 border border-amber-100 px-2.5 py-1 rounded-full font-semibold">
+                <Database className="w-3.5 h-3.5" /> Mock Sandbox Active
+              </div>
+            )}
             
             <button
               onClick={handleSaveConfigs}
