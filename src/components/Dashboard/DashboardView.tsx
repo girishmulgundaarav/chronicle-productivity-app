@@ -586,7 +586,7 @@ export const DashboardView: React.FC = () => {
         {/* Action Buttons & Streaks Header widget */}
         <div className="flex flex-wrap items-center gap-3 self-start md:self-auto">
           {dbData.length > 0 && (
-            <div className="flex items-center gap-2">
+            <div className="flex flex-wrap items-center gap-2">
               <button
                 onClick={exportToCSV}
                 title="Download report as CSV file"
@@ -699,7 +699,7 @@ export const DashboardView: React.FC = () => {
           )}
 
           {viewMode === 'custom' && (
-            <div className="flex flex-wrap items-center gap-3 bg-slate-50 border border-theme-border rounded-xl px-4 py-1.5 shadow-xs font-sans">
+            <div className="flex flex-wrap items-center gap-3 bg-slate-50 border border-theme-border rounded-xl px-4 py-1.5 shadow-xs font-sans w-full sm:w-auto justify-between sm:justify-start">
               <div className="flex items-center gap-1.5">
                 <span className="text-[10px] font-bold text-brand-slate uppercase tracking-wider">Start</span>
                 <input 
@@ -709,7 +709,7 @@ export const DashboardView: React.FC = () => {
                   className="text-xs font-bold text-foreground bg-transparent border-none focus:outline-none cursor-pointer focus:ring-1 focus:ring-brand-indigo/35 rounded px-1"
                 />
               </div>
-              <div className="w-px h-4 bg-theme-divider" />
+              <div className="hidden sm:block w-px h-4 bg-theme-divider" />
               <div className="flex items-center gap-1.5">
                 <span className="text-[10px] font-bold text-brand-slate uppercase tracking-wider">End</span>
                 <input 
@@ -827,7 +827,7 @@ export const DashboardView: React.FC = () => {
                     </PieChart>
                   </ResponsiveContainer>
                 </div>
-                <div className="w-full md:w-1/2 flex flex-col gap-2 px-4">
+                <div className="w-full md:w-1/2 grid grid-cols-2 md:flex md:flex-col gap-2 px-4 mt-4 md:mt-0">
                   {pieData.map((item, idx) => (
                     <div key={idx} className="flex items-center justify-between text-[11px]">
                       <div className="flex items-center gap-2">

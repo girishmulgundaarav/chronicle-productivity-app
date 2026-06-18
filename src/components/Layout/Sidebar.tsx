@@ -21,7 +21,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ activeTab, setActiveTab }) => 
   ];
 
   return (
-    <aside className="w-64 bg-white border-r border-theme-divider flex flex-col h-screen sticky top-0 print:hidden">
+    <aside className="hidden md:flex w-64 bg-white border-r border-theme-divider flex-col h-screen sticky top-0 print:hidden">
       {/* Brand Header */}
       <div className="h-16 flex items-center px-6 border-b border-theme-border">
         <div className="flex items-center gap-3">

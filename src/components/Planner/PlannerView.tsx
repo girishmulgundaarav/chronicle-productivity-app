@@ -610,20 +610,22 @@ export const PlannerView: React.FC<PlannerViewProps> = ({ selectedDate, setSelec
       </div>
 
       {/* Quick Add Presets */}
-      <div className="flex flex-wrap items-center gap-2 bg-slate-50 border border-theme-border rounded-xl p-3">
-        <span className="text-[10px] font-extrabold text-brand-slate uppercase tracking-wider mr-1 select-none flex items-center gap-1">
-          <Plus className="w-3.5 h-3.5 text-brand-indigo" /> Quick Add Preset:
+      <div className="flex items-center bg-slate-50 border border-theme-border rounded-xl p-3 w-full overflow-hidden select-none">
+        <span className="text-[10px] font-extrabold text-brand-slate uppercase tracking-wider mr-2 shrink-0 flex items-center gap-1">
+          <Plus className="w-3.5 h-3.5 text-brand-indigo" /> Presets:
         </span>
-        {TASK_PRESETS.map((preset) => (
-          <button
-            key={preset.taskName}
-            onClick={() => handleAddPreset(preset)}
-            className="text-[10px] font-bold text-brand-slate bg-white border border-theme-divider hover:border-brand-indigo hover:text-brand-indigo px-3 py-1.5 rounded-lg transition-premium cursor-pointer inline-flex items-center gap-1 hover:shadow-xs"
-          >
-            <span>{preset.taskName}</span>
-            <span className="text-[9px] font-medium text-brand-slate/60 hover:text-brand-indigo/60">({formatPresetTime(preset.intendedHours)})</span>
-          </button>
-        ))}
+        <div className="flex overflow-x-auto whitespace-nowrap gap-2 scrollbar-none py-0.5 w-full">
+          {TASK_PRESETS.map((preset) => (
+            <button
+              key={preset.taskName}
+              onClick={() => handleAddPreset(preset)}
+              className="text-[10px] font-bold text-brand-slate bg-white border border-theme-divider hover:border-brand-indigo hover:text-brand-indigo px-3 py-1.5 rounded-lg transition-premium cursor-pointer inline-flex items-center gap-1 hover:shadow-xs shrink-0"
+            >
+              <span>{preset.taskName}</span>
+              <span className="text-[9px] font-medium text-brand-slate/60 hover:text-brand-indigo/60">({formatPresetTime(preset.intendedHours)})</span>
+            </button>
+          ))}
+        </div>
       </div>
 
       {/* Analytics Grid */}
@@ -860,52 +862,55 @@ export const PlannerView: React.FC<PlannerViewProps> = ({ selectedDate, setSelec
                     />
                   </div>
 
-                  {/* 2. Intended Hours Column */}
-                  <div className="col-span-2">
-                    <label className="lg:hidden text-[9px] font-bold uppercase tracking-wider text-brand-slate block mb-1">Intended Hours</label>
-                    <input
-                      type="number"
-                      step="0.5"
-                      min="0"
-                      value={task.intendedHours}
-                      onChange={(e) => handleInputChange(task.id, 'intendedHours', e.target.value)}
-                      onBlur={() => handleSaveTask(task.id, undefined, true)}
-                      placeholder="0.0"
-                      className={`w-full text-xs text-center border rounded-xl px-3 py-2 bg-white text-foreground focus:outline-none transition-premium shadow-xs ${
-                        task.intendedError 
-                          ? 'border-red-400 focus:border-red-500 hover:border-red-400 bg-red-50/10' 
-                          : 'border-theme-divider hover:border-slate-300 focus:border-brand-indigo'
-                      }`}
-                    />
-                    {task.intendedError && (
-                      <span className="text-[8px] font-extrabold text-red-500 block text-center mt-1 select-none animate-fade-in">
-                        {task.intendedError}
-                      </span>
-                    )}
-                  </div>
+                  {/* 2. Intended Hours & 3. Actual Hours columns grouped for mobile */}
+                  <div className="col-span-4 grid grid-cols-2 gap-3 lg:contents">
+                    {/* Intended Hours Column */}
+                    <div className="col-span-1 lg:col-span-2">
+                      <label className="lg:hidden text-[9px] font-bold uppercase tracking-wider text-brand-slate block mb-1">Intended Hours</label>
+                      <input
+                        type="number"
+                        step="0.5"
+                        min="0"
+                        value={task.intendedHours}
+                        onChange={(e) => handleInputChange(task.id, 'intendedHours', e.target.value)}
+                        onBlur={() => handleSaveTask(task.id, undefined, true)}
+                        placeholder="0.0"
+                        className={`w-full text-xs text-center border rounded-xl px-3 py-2 bg-white text-foreground focus:outline-none transition-premium shadow-xs ${
+                          task.intendedError 
+                            ? 'border-red-400 focus:border-red-500 hover:border-red-400 bg-red-50/10' 
+                            : 'border-theme-divider hover:border-slate-300 focus:border-brand-indigo'
+                        }`}
+                      />
+                      {task.intendedError && (
+                        <span className="text-[8px] font-extrabold text-red-500 block text-center mt-1 select-none animate-fade-in">
+                          {task.intendedError}
+                        </span>
+                      )}
+                    </div>
 
-                  {/* 3. Actual Hours Column */}
-                  <div className="col-span-2">
-                    <label className="lg:hidden text-[9px] font-bold uppercase tracking-wider text-brand-slate block mb-1">Actual Completed (Hrs)</label>
-                    <input
-                      type="number"
-                      step="0.5"
-                      min="0"
-                      value={task.actualHours}
-                      onChange={(e) => handleInputChange(task.id, 'actualHours', e.target.value)}
-                      onBlur={() => handleSaveTask(task.id, undefined, true)}
-                      placeholder="0.0"
-                      className={`w-full text-xs text-center border rounded-xl px-3 py-2 bg-white text-foreground focus:outline-none transition-premium shadow-xs ${
-                        task.actualError 
-                          ? 'border-red-400 focus:border-red-500 hover:border-red-400 bg-red-50/10' 
-                          : 'border-theme-divider hover:border-slate-300 focus:border-brand-indigo'
-                      }`}
-                    />
-                    {task.actualError && (
-                      <span className="text-[8px] font-extrabold text-red-500 block text-center mt-1 select-none animate-fade-in">
-                        {task.actualError}
-                      </span>
-                    )}
+                    {/* Actual Hours Column */}
+                    <div className="col-span-1 lg:col-span-2">
+                      <label className="lg:hidden text-[9px] font-bold uppercase tracking-wider text-brand-slate block mb-1">Actual Completed (Hrs)</label>
+                      <input
+                        type="number"
+                        step="0.5"
+                        min="0"
+                        value={task.actualHours}
+                        onChange={(e) => handleInputChange(task.id, 'actualHours', e.target.value)}
+                        onBlur={() => handleSaveTask(task.id, undefined, true)}
+                        placeholder="0.0"
+                        className={`w-full text-xs text-center border rounded-xl px-3 py-2 bg-white text-foreground focus:outline-none transition-premium shadow-xs ${
+                          task.actualError 
+                            ? 'border-red-400 focus:border-red-500 hover:border-red-400 bg-red-50/10' 
+                            : 'border-theme-divider hover:border-slate-300 focus:border-brand-indigo'
+                        }`}
+                      />
+                      {task.actualError && (
+                        <span className="text-[8px] font-extrabold text-red-500 block text-center mt-1 select-none animate-fade-in">
+                          {task.actualError}
+                        </span>
+                      )}
+                    </div>
                   </div>
 
                   {/* 4. Controls Matrix (Category and Score Sliders) */}

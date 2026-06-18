@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { Sidebar } from './components/Layout/Sidebar';
 import { Header } from './components/Layout/Header';
+import { BottomNavbar } from './components/Layout/BottomNavbar';
 import { DashboardView } from './components/Dashboard/DashboardView';
 import { PlannerView } from './components/Planner/PlannerView';
 import { AISummaryView } from './components/AI/AISummaryView';
@@ -50,10 +51,16 @@ function App() {
         />
 
         {/* Scrollable Main Area */}
-        <main className="flex-1 overflow-y-auto p-8 max-w-7xl w-full mx-auto print:p-0 print:max-w-none">
+        <main className="flex-1 overflow-y-auto p-4 md:p-8 pb-24 md:pb-8 max-w-7xl w-full mx-auto print:p-0 print:max-w-none">
           {renderContent()}
         </main>
       </div>
+
+      {/* Mobile Bottom Navigation */}
+      <BottomNavbar 
+        activeTab={activeTab} 
+        setActiveTab={setActiveTab} 
+      />
 
       {/* Authentication Dialog overlay */}
       <AuthModal 
