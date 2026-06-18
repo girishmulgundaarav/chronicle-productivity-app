@@ -21,8 +21,6 @@ export const SettingsView: React.FC = () => {
   const { user, profile, refreshProfile } = useAuth();
   const { categories, addCategory, updateCategory, deleteCategory } = useCategories();
   
-  const [supabaseUrl] = useState(() => import.meta.env.VITE_SUPABASE_URL || '');
-  const [supabaseKey] = useState(() => import.meta.env.VITE_SUPABASE_ANON_KEY ? '••••••••••••••••••••' : '');
   const [geminiKey, setGeminiKey] = useState(() => localStorage.getItem('VITE_GEMINI_API_KEY') || '');
   
   const [isSaved, setIsSaved] = useState(false);
@@ -140,30 +138,6 @@ export const SettingsView: React.FC = () => {
                 onChange={(e) => setGeminiKey(e.target.value)}
                 placeholder="Enter Gemini API key (e.g. AIzaSy...)"
                 className="w-full text-xs border border-theme-divider rounded-xl px-3.5 py-2.5 bg-white text-foreground focus:outline-none focus:border-brand-indigo"
-              />
-            </div>
-
-            {/* Supabase URL */}
-            <div>
-              <label className="text-[10px] font-bold uppercase tracking-wider text-brand-slate block mb-1">Supabase URL</label>
-              <input
-                type="text"
-                value={supabaseUrl}
-                disabled
-                placeholder="https://your-supabase-project.supabase.co"
-                className="w-full text-xs border border-theme-divider rounded-xl px-3.5 py-2.5 bg-slate-50 text-brand-slate/60 focus:outline-none cursor-not-allowed font-semibold"
-              />
-            </div>
-
-            {/* Supabase Anon Key */}
-            <div>
-              <label className="text-[10px] font-bold uppercase tracking-wider text-brand-slate block mb-1">Supabase Anon Key</label>
-              <input
-                type="password"
-                value={supabaseKey}
-                disabled
-                placeholder="Enter Supabase anon public key"
-                className="w-full text-xs border border-theme-divider rounded-xl px-3.5 py-2.5 bg-slate-50 text-brand-slate/60 focus:outline-none cursor-not-allowed font-semibold"
               />
             </div>
           </div>
