@@ -120,3 +120,30 @@ create policy "Users can update own categories" on public.user_categories
 
 create policy "Users can delete own categories" on public.user_categories
   for delete using (auth.uid() = user_id);
+
+-- 5. USER_LEAVES TABLE (Holidays/leaves logged by user)
+create table public.user_leaves (
+  id uuid default gen_random_uuid() primary key,
+  user_id uuid references public.profiles(id) on delete cascade not null,
+  date date not null,
+  leave_type text not null constraint check_leave_type check (leave_type in ('Sick Leave', 'Earned Leave', 'Restricted Holiday', 'Company Holiday')),
+  created_at timestamp with time zone default timezone('utc'::text, now()) not null,
+  constraint unique_user_leave unique(user_id, date)
+);
+
+-- Enable RLS on User Leaves
+alter table public.user_leaves enable row level security;
+
+-- User Leaves Policies
+create policy "Users can view own leaves" on public.user_leaves
+  for select using (auth.uid() = user_id);
+
+create policy "Users can insert own leaves" on public.user_leaves
+  for insert with check (auth.uid() = user_id);
+
+create policy "Users can update own leaves" on public.user_leaves
+  for update using (auth.uid() = user_id);
+
+create policy "Users can delete own leaves" on public.user_leaves
+  for delete using (auth.uid() = user_id);
+

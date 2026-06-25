@@ -61,6 +61,7 @@ export const PlannerView: React.FC<PlannerViewProps> = ({ selectedDate, setSelec
   const [errorMessage, setErrorMessage] = useState<string>('');
   const [loading, setLoading] = useState<boolean>(true);
   const [isSavingAll, setIsSavingAll] = useState<boolean>(false);
+  const [leaveType, setLeaveType] = useState<string | null>(null);
 
   // Check auth session
   useEffect(() => {
@@ -73,14 +74,32 @@ export const PlannerView: React.FC<PlannerViewProps> = ({ selectedDate, setSelec
     checkUser();
   }, []);
 
-  // Fetch daily tasks
+  // Fetch daily tasks and leave status
   const loadDailyTasks = useCallback(async () => {
     setLoading(true);
     setErrorMessage('');
+    setLeaveType(null);
 
-    // 1. Try fetching from Supabase
+    // 1. Try fetching leave status and tasks from Supabase
+    let leaveTypeFetched: string | null = null;
     if (isSupabaseConfigured() && currentUser) {
       try {
+        const { data: leaveData, error: leaveError } = await supabase
+          .from('user_leaves')
+          .select('*')
+          .eq('user_id', currentUser.id)
+          .eq('date', selectedDate)
+          .maybeSingle();
+
+        if (!leaveError && leaveData) {
+          leaveTypeFetched = leaveData.leave_type;
+          localStorage.setItem(`chronicle_leave_${selectedDate}`, leaveData.leave_type);
+          localStorage.setItem(`chronicle_leave_record_${selectedDate}`, JSON.stringify({ id: leaveData.id, leave_type: leaveData.leave_type }));
+        } else if (!leaveError && !leaveData) {
+          localStorage.removeItem(`chronicle_leave_${selectedDate}`);
+          localStorage.removeItem(`chronicle_leave_record_${selectedDate}`);
+        }
+
         const { data, error } = await supabase
           .from('daily_tasks')
           .select('*')
@@ -104,16 +123,21 @@ export const PlannerView: React.FC<PlannerViewProps> = ({ selectedDate, setSelec
             isSaved: true
           }));
           setTasks(loaded);
+          setLeaveType(leaveTypeFetched);
           setLoading(false);
           return;
         }
       } catch (err: any) {
-        console.error('Failed to load tasks from Supabase:', err.message);
+        console.error('Failed to load tasks/leaves from Supabase:', err.message);
         setErrorMessage('Could not sync with Supabase. Working in offline mode.');
       }
     }
 
     // 2. Fallback to LocalStorage
+    const localLeaveKey = `chronicle_leave_${selectedDate}`;
+    const localLeaveVal = localStorage.getItem(localLeaveKey);
+    setLeaveType(localLeaveVal);
+
     const localKey = `chronicle_tasks_${selectedDate}`;
     const localData = localStorage.getItem(localKey);
     if (localData) {
@@ -135,6 +159,97 @@ export const PlannerView: React.FC<PlannerViewProps> = ({ selectedDate, setSelec
     }
     setLoading(false);
   }, [selectedDate, currentUser]);
+
+  const handleUpdateLeaveType = async (newType: string | null) => {
+    const localLeaveKey = `chronicle_leave_${selectedDate}`;
+    const localRecordKey = `chronicle_leave_record_${selectedDate}`;
+
+    setLeaveType(newType);
+
+    if (newType === null) {
+      localStorage.removeItem(localLeaveKey);
+      const cachedVal = localStorage.getItem(localRecordKey);
+      localStorage.removeItem(localRecordKey);
+
+      if (isSupabaseConfigured() && currentUser) {
+        try {
+          if (navigator.onLine) {
+            const { data } = await supabase
+              .from('user_leaves')
+              .select('id')
+              .eq('user_id', currentUser.id)
+              .eq('date', selectedDate)
+              .maybeSingle();
+
+            if (data?.id) {
+              await supabase.from('user_leaves').delete().eq('id', data.id);
+            } else {
+              await supabase.from('user_leaves').delete().eq('user_id', currentUser.id).eq('date', selectedDate);
+            }
+          } else if (cachedVal) {
+            const { id } = JSON.parse(cachedVal);
+            await queueSyncAction('user_leaves', 'delete', { id });
+          }
+        } catch (err: any) {
+          console.error('Failed to delete leave from database:', err);
+        }
+      }
+    } else {
+      const tempId = generateUUID();
+      const payload = {
+        id: tempId,
+        user_id: currentUser?.id || '',
+        date: selectedDate,
+        leave_type: newType
+      };
+
+      const cachedVal = localStorage.getItem(localRecordKey);
+      if (cachedVal) {
+        try {
+          const { id } = JSON.parse(cachedVal);
+          if (!navigator.onLine) {
+            await queueSyncAction('user_leaves', 'delete', { id });
+          }
+        } catch (e) {
+          console.error(e);
+        }
+      }
+
+      localStorage.setItem(localLeaveKey, newType);
+      localStorage.setItem(localRecordKey, JSON.stringify({ id: tempId, leave_type: newType }));
+
+      if (isSupabaseConfigured() && currentUser) {
+        payload.user_id = currentUser.id;
+        try {
+          if (navigator.onLine) {
+            const { data: existing } = await supabase
+              .from('user_leaves')
+              .select('id')
+              .eq('user_id', currentUser.id)
+              .eq('date', selectedDate)
+              .maybeSingle();
+
+            if (existing?.id) {
+              payload.id = existing.id;
+              localStorage.setItem(localRecordKey, JSON.stringify({ id: existing.id, leave_type: newType }));
+            }
+
+            const { error } = await supabase
+              .from('user_leaves')
+              .upsert(payload);
+
+            if (error) throw error;
+          } else {
+            await queueSyncAction('user_leaves', 'insert', payload);
+          }
+        } catch (err: any) {
+          console.error('Failed to save leave status:', err.message || err);
+          setErrorMessage(`Failed to save leave to database: ${err.message || err}. Queued for offline sync.`);
+          await queueSyncAction('user_leaves', 'insert', payload);
+        }
+      }
+    }
+  };
 
   useEffect(() => {
     loadDailyTasks();
@@ -609,24 +724,107 @@ export const PlannerView: React.FC<PlannerViewProps> = ({ selectedDate, setSelec
         </div>
       </div>
 
-      {/* Quick Add Presets */}
-      <div className="flex items-center bg-slate-50 border border-theme-border rounded-xl p-3 w-full overflow-hidden select-none">
-        <span className="text-[10px] font-extrabold text-brand-slate uppercase tracking-wider mr-2 shrink-0 flex items-center gap-1">
-          <Plus className="w-3.5 h-3.5 text-brand-indigo" /> Presets:
-        </span>
-        <div className="flex overflow-x-auto whitespace-nowrap gap-2 scrollbar-none py-0.5 w-full">
-          {TASK_PRESETS.map((preset) => (
+      {/* Day Status / Leave Selector */}
+      <div className="bg-white border border-theme-border rounded-2xl p-4 shadow-xs select-none">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+          <div className="flex items-center gap-2">
+            <span className="text-xs font-extrabold text-foreground uppercase tracking-wider">Day Status:</span>
+            <span className={`text-[10px] font-bold px-2.5 py-1 rounded-full ${
+              leaveType 
+                ? 'bg-amber-50 text-amber-700 border border-amber-100' 
+                : 'bg-emerald-50 text-brand-emerald border border-emerald-100'
+            }`}>
+              {leaveType ? `Off (${leaveType})` : 'Working Day'}
+            </span>
+          </div>
+          <div className="flex flex-wrap gap-1.5">
             <button
-              key={preset.taskName}
-              onClick={() => handleAddPreset(preset)}
-              className="text-[10px] font-bold text-brand-slate bg-white border border-theme-divider hover:border-brand-indigo hover:text-brand-indigo px-3 py-1.5 rounded-lg transition-premium cursor-pointer inline-flex items-center gap-1 hover:shadow-xs shrink-0"
+              onClick={() => handleUpdateLeaveType(null)}
+              className={`px-3 py-1.5 text-[10px] font-bold rounded-lg border transition-premium cursor-pointer ${
+                leaveType === null
+                  ? 'bg-brand-indigo text-white border-brand-indigo'
+                  : 'bg-white text-brand-slate border-slate-200 hover:border-slate-300 hover:text-foreground'
+              }`}
             >
-              <span>{preset.taskName}</span>
-              <span className="text-[9px] font-medium text-brand-slate/60 hover:text-brand-indigo/60">({formatPresetTime(preset.intendedHours)})</span>
+              Working Day
             </button>
-          ))}
+            {(['Sick Leave', 'Earned Leave', 'Restricted Holiday', 'Company Holiday'] as const).map((type) => {
+              const isSelected = leaveType === type;
+              return (
+                <button
+                  key={type}
+                  onClick={() => handleUpdateLeaveType(type)}
+                  className={`px-3 py-1.5 text-[10px] font-bold rounded-lg border transition-premium cursor-pointer ${
+                    isSelected
+                      ? 'bg-amber-500 text-white border-amber-500 shadow-xs'
+                      : 'bg-white text-brand-slate border-slate-200 hover:border-slate-300 hover:text-foreground'
+                  }`}
+                >
+                  {type}
+                </button>
+              );
+            })}
+          </div>
         </div>
       </div>
+
+      {/* Holiday Banner */}
+      {leaveType && (
+        <div className={`relative overflow-hidden rounded-2xl border p-5 shadow-xs transition-premium bg-gradient-to-r ${
+          leaveType === 'Earned Leave' ? 'from-emerald-500/10 via-teal-500/5 to-transparent border-emerald-500/20 text-emerald-800' :
+          leaveType === 'Sick Leave' ? 'from-rose-500/10 via-orange-500/5 to-transparent border-rose-500/20 text-rose-800' :
+          leaveType === 'Company Holiday' ? 'from-indigo-500/10 via-purple-500/5 to-transparent border-indigo-500/20 text-indigo-850' :
+          'from-amber-500/10 via-yellow-500/5 to-transparent border-amber-500/20 text-amber-800'
+        }`}>
+          <div className="absolute top-0 right-0 w-32 h-32 bg-white/5 rounded-full blur-2xl pointer-events-none" />
+          <div className="flex items-start gap-4">
+            <div className={`p-3 rounded-xl shrink-0 text-xl ${
+              leaveType === 'Earned Leave' ? 'bg-emerald-50 text-emerald-600' :
+              leaveType === 'Sick Leave' ? 'bg-rose-50 text-rose-600' :
+              leaveType === 'Company Holiday' ? 'bg-indigo-50 text-brand-indigo' :
+              'bg-amber-50 text-amber-600'
+            }`}>
+              {leaveType === 'Earned Leave' ? '🌴' :
+               leaveType === 'Sick Leave' ? '🏥' :
+               leaveType === 'Company Holiday' ? '🎉' : '🗓️'}
+            </div>
+            <div className="space-y-1">
+              <h4 className="text-sm font-bold text-slate-800">
+                {leaveType === 'Earned Leave' ? 'You are on Earned Leave today!' :
+                 leaveType === 'Sick Leave' ? 'Logged as Sick Leave' :
+                 leaveType === 'Company Holiday' ? 'Official Company Holiday observed' : 'Restricted Holiday observed'}
+              </h4>
+              <p className="text-xs text-brand-slate leading-relaxed">
+                This day is marked as off. You do not need to log regular tasks.
+                {tasks.length > 0 
+                  ? ' However, you have logged tasks below, which will be recorded as holiday work.'
+                  : ' Enjoy your day off!'}
+              </p>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Quick Add Presets */}
+      {!leaveType && (
+        <div className="flex items-center bg-slate-50 border border-theme-border rounded-xl p-3 w-full overflow-hidden select-none animate-fade-in">
+          <span className="text-[10px] font-extrabold text-brand-slate uppercase tracking-wider mr-2 shrink-0 flex items-center gap-1">
+            <Plus className="w-3.5 h-3.5 text-brand-indigo" /> Presets:
+          </span>
+          <div className="flex overflow-x-auto whitespace-nowrap gap-2 scrollbar-none py-0.5 w-full">
+            {TASK_PRESETS.map((preset) => (
+              <button
+                key={preset.taskName}
+                onClick={() => handleAddPreset(preset)}
+                className="text-[10px] font-bold text-brand-slate bg-white border border-theme-divider hover:border-brand-indigo hover:text-brand-indigo px-3 py-1.5 rounded-lg transition-premium cursor-pointer inline-flex items-center gap-1 hover:shadow-xs shrink-0"
+              >
+                <span>{preset.taskName}</span>
+                <span className="text-[9px] font-medium text-brand-slate/60 hover:text-brand-indigo/60">({formatPresetTime(preset.intendedHours)})</span>
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
 
       {/* Analytics Grid */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
@@ -807,37 +1005,43 @@ export const PlannerView: React.FC<PlannerViewProps> = ({ selectedDate, setSelec
               <Calendar className="w-5 h-5" />
             </div>
             <div>
-              <div className="text-xs font-bold text-foreground">No tasks logged for today</div>
-              <div className="text-[10px] text-brand-slate max-w-xs mx-auto mt-0.5">Click the Add Task button below to create your daily schedule logs.</div>
-            </div>
-            <div className="flex justify-center gap-3 mt-3 flex-wrap">
-              <button
-                onClick={handleAddTask}
-                className="text-xs font-bold text-brand-indigo bg-brand-indigo/5 border border-brand-indigo/10 px-4 py-2 rounded-xl hover:bg-brand-indigo/10 transition-premium cursor-pointer inline-flex items-center gap-1.5"
-              >
-                <Plus className="w-4 h-4" /> Add First Task
-              </button>
-              <button
-                onClick={handleCopyFromYesterday}
-                className="text-xs font-bold text-brand-slate bg-slate-50 border border-slate-200 px-4 py-2 rounded-xl hover:bg-slate-100 hover:text-foreground transition-premium cursor-pointer inline-flex items-center gap-1.5"
-              >
-                <Copy className="w-3.5 h-3.5" /> Copy Previous Day
-              </button>
-              <div className="flex items-center gap-1.5 border border-slate-200 rounded-xl px-4 py-2 bg-slate-50 hover:bg-slate-100 transition-premium">
-                <Copy className="w-3.5 h-3.5 text-brand-slate" />
-                <span className="text-xs font-bold text-brand-slate whitespace-nowrap">Or copy from:</span>
-                <input
-                  type="date"
-                  onChange={(e) => {
-                    if (e.target.value) {
-                      handleCopyFromDate(e.target.value);
-                      e.target.value = '';
-                    }
-                  }}
-                  className="text-xs bg-transparent border-none focus:outline-none cursor-pointer text-brand-slate font-semibold"
-                />
+              <div className="text-xs font-bold text-foreground">
+                {leaveType ? `Day Off logged: ${leaveType}` : 'No tasks logged for today'}
+              </div>
+              <div className="text-[10px] text-brand-slate max-w-xs mx-auto mt-0.5">
+                {leaveType ? 'You are on leave today. Add Task options are disabled.' : 'Click the Add Task button below to create your daily schedule logs.'}
               </div>
             </div>
+            {!leaveType && (
+              <div className="flex justify-center gap-3 mt-3 flex-wrap animate-fade-in">
+                <button
+                  onClick={handleAddTask}
+                  className="text-xs font-bold text-brand-indigo bg-brand-indigo/5 border border-brand-indigo/10 px-4 py-2 rounded-xl hover:bg-brand-indigo/10 transition-premium cursor-pointer inline-flex items-center gap-1.5"
+                >
+                  <Plus className="w-4 h-4" /> Add First Task
+                </button>
+                <button
+                  onClick={handleCopyFromYesterday}
+                  className="text-xs font-bold text-brand-slate bg-slate-50 border border-slate-200 px-4 py-2 rounded-xl hover:bg-slate-100 hover:text-foreground transition-premium cursor-pointer inline-flex items-center gap-1.5"
+                >
+                  <Copy className="w-3.5 h-3.5" /> Copy Previous Day
+                </button>
+                <div className="flex items-center gap-1.5 border border-slate-200 rounded-xl px-4 py-2 bg-slate-50 hover:bg-slate-100 transition-premium">
+                  <Copy className="w-3.5 h-3.5 text-brand-slate" />
+                  <span className="text-xs font-bold text-brand-slate whitespace-nowrap">Or copy from:</span>
+                  <input
+                    type="date"
+                    onChange={(e) => {
+                      if (e.target.value) {
+                        handleCopyFromDate(e.target.value);
+                        e.target.value = '';
+                      }
+                    }}
+                    className="text-xs bg-transparent border-none focus:outline-none cursor-pointer text-brand-slate font-semibold"
+                  />
+                </div>
+              </div>
+            )}
           </div>
         ) : (
           <div className="divide-y divide-theme-border">
@@ -847,7 +1051,7 @@ export const PlannerView: React.FC<PlannerViewProps> = ({ selectedDate, setSelec
                   key={task.id} 
                   className={`grid grid-cols-1 lg:grid-cols-12 px-6 py-5 lg:py-4 items-center hover:bg-slate-50/20 transition-premium gap-4 ${
                     task.isSaved ? 'bg-emerald-50/5' : ''
-                  }`}
+                  } ${leaveType ? 'opacity-70' : ''}`}
                 >
                   {/* 1. Task Description Column */}
                   <div className="col-span-4">
@@ -855,10 +1059,11 @@ export const PlannerView: React.FC<PlannerViewProps> = ({ selectedDate, setSelec
                     <input
                       type="text"
                       value={task.taskName}
+                      disabled={!!leaveType}
                       onChange={(e) => handleInputChange(task.id, 'taskName', e.target.value)}
                       onBlur={() => handleSaveTask(task.id, undefined, true)}
                       placeholder="e.g. Implement Supabase client setup"
-                      className="w-full text-xs border border-theme-divider hover:border-slate-300 rounded-xl px-3.5 py-2 bg-white text-foreground focus:outline-none focus:border-brand-indigo transition-premium shadow-xs"
+                      className="w-full text-xs border border-theme-divider hover:border-slate-300 rounded-xl px-3.5 py-2 bg-white text-foreground focus:outline-none focus:border-brand-indigo transition-premium shadow-xs disabled:bg-slate-50 disabled:cursor-not-allowed disabled:text-slate-450"
                     />
                   </div>
 
@@ -872,10 +1077,11 @@ export const PlannerView: React.FC<PlannerViewProps> = ({ selectedDate, setSelec
                         step="0.5"
                         min="0"
                         value={task.intendedHours}
+                        disabled={!!leaveType}
                         onChange={(e) => handleInputChange(task.id, 'intendedHours', e.target.value)}
                         onBlur={() => handleSaveTask(task.id, undefined, true)}
                         placeholder="0.0"
-                        className={`w-full text-xs text-center border rounded-xl px-3 py-2 bg-white text-foreground focus:outline-none transition-premium shadow-xs ${
+                        className={`w-full text-xs text-center border rounded-xl px-3 py-2 bg-white text-foreground focus:outline-none transition-premium shadow-xs disabled:bg-slate-50 disabled:cursor-not-allowed disabled:text-slate-450 ${
                           task.intendedError 
                             ? 'border-red-400 focus:border-red-500 hover:border-red-400 bg-red-50/10' 
                             : 'border-theme-divider hover:border-slate-300 focus:border-brand-indigo'
@@ -896,10 +1102,11 @@ export const PlannerView: React.FC<PlannerViewProps> = ({ selectedDate, setSelec
                         step="0.5"
                         min="0"
                         value={task.actualHours}
+                        disabled={!!leaveType}
                         onChange={(e) => handleInputChange(task.id, 'actualHours', e.target.value)}
                         onBlur={() => handleSaveTask(task.id, undefined, true)}
                         placeholder="0.0"
-                        className={`w-full text-xs text-center border rounded-xl px-3 py-2 bg-white text-foreground focus:outline-none transition-premium shadow-xs ${
+                        className={`w-full text-xs text-center border rounded-xl px-3 py-2 bg-white text-foreground focus:outline-none transition-premium shadow-xs disabled:bg-slate-50 disabled:cursor-not-allowed disabled:text-slate-450 ${
                           task.actualError 
                             ? 'border-red-400 focus:border-red-500 hover:border-red-400 bg-red-50/10' 
                             : 'border-theme-divider hover:border-slate-300 focus:border-brand-indigo'
@@ -925,8 +1132,9 @@ export const PlannerView: React.FC<PlannerViewProps> = ({ selectedDate, setSelec
                             <button
                               key={cat.id}
                               type="button"
+                              disabled={!!leaveType}
                               onClick={() => updateAndSaveTask(task.id, 'category', isSelected ? '' : cat.name)}
-                              className="px-2 py-1 rounded-md text-[9px] font-bold border transition-premium cursor-pointer"
+                              className="px-2 py-1 rounded-md text-[9px] font-bold border transition-premium cursor-pointer disabled:pointer-events-none disabled:opacity-50"
                               style={{
                                 backgroundColor: isSelected ? cat.color : 'transparent',
                                 borderColor: isSelected ? cat.color : '#e2e8f0',
@@ -948,10 +1156,11 @@ export const PlannerView: React.FC<PlannerViewProps> = ({ selectedDate, setSelec
                         min="1"
                         max="5"
                         value={task.productivityScore}
+                        disabled={!!leaveType}
                         onChange={(e) => handleInputChange(task.id, 'productivityScore', parseInt(e.target.value))}
                         onMouseUp={() => handleSaveTask(task.id, undefined, true)}
                         onTouchEnd={() => handleSaveTask(task.id, undefined, true)}
-                        className="w-full h-1 bg-slate-200 rounded-lg appearance-none cursor-pointer accent-brand-indigo"
+                        className="w-full h-1 bg-slate-200 rounded-lg appearance-none cursor-pointer accent-brand-indigo disabled:opacity-50 disabled:cursor-not-allowed"
                       />
                       <span className="text-[10px] font-extrabold text-foreground select-none w-3 text-right">
                         {task.productivityScore}
@@ -964,8 +1173,8 @@ export const PlannerView: React.FC<PlannerViewProps> = ({ selectedDate, setSelec
                     <button
                       type="button"
                       onClick={() => handleSaveTask(task.id)}
-                      disabled={task.isSaving}
-                      className={`h-9 px-3 rounded-xl border flex items-center justify-center gap-1.5 text-xs font-bold transition-premium cursor-pointer flex-1 lg:flex-initial ${
+                      disabled={task.isSaving || !!leaveType}
+                      className={`h-9 px-3 rounded-xl border flex items-center justify-center gap-1.5 text-xs font-bold transition-premium cursor-pointer flex-1 lg:flex-initial disabled:opacity-50 disabled:cursor-not-allowed ${
                         task.isSaved
                           ? 'bg-emerald-50 text-emerald-600 border-emerald-100 hover:bg-emerald-100'
                           : 'bg-white hover:bg-slate-50 text-brand-slate hover:text-foreground border-theme-divider hover:border-slate-300'
@@ -986,8 +1195,9 @@ export const PlannerView: React.FC<PlannerViewProps> = ({ selectedDate, setSelec
 
                     <button
                       type="button"
+                      disabled={!!leaveType}
                       onClick={() => handleDeleteTask(task.id, task.isTemp)}
-                      className="h-9 w-9 rounded-xl border border-red-100 bg-red-50 text-red-500 hover:bg-red-100 flex items-center justify-center transition-premium cursor-pointer shrink-0"
+                      className="h-9 w-9 rounded-xl border border-red-100 bg-red-50 text-red-500 hover:bg-red-100 flex items-center justify-center transition-premium cursor-pointer shrink-0 disabled:opacity-50 disabled:cursor-not-allowed"
                     >
                       <Trash2 className="w-3.5 h-3.5" />
                     </button>
@@ -999,7 +1209,7 @@ export const PlannerView: React.FC<PlannerViewProps> = ({ selectedDate, setSelec
         )}
 
         {/* Footer actions - Add Task */}
-        {!loading && tasks.length > 0 && (
+        {!loading && tasks.length > 0 && !leaveType && (
           <div className="bg-slate-50 px-6 py-4 border-t border-theme-divider flex justify-between items-center flex-wrap gap-3">
             <div className="text-[10px] text-brand-slate font-bold uppercase tracking-wider select-none">
               {tasks.filter(t => !t.isSaved).length} unsaved {tasks.filter(t => !t.isSaved).length === 1 ? 'change' : 'changes'}

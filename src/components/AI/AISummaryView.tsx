@@ -348,6 +348,45 @@ export const AISummaryView: React.FC<AISummaryViewProps> = ({ selectedDate }) =>
     return aggregatedRows;
   };
 
+  const getWeeklyLeavesForPrompt = async (): Promise<any[]> => {
+    const dates = getDatesInRange(startDate, endDate);
+    const leaves: any[] = [];
+
+    // 1. Try fetching from Supabase if configured and logged in
+    if (isSupabaseConfigured() && currentUser) {
+      try {
+        const { data, error } = await supabase
+          .from('user_leaves')
+          .select('*')
+          .eq('user_id', currentUser.id)
+          .in('date', dates);
+        
+        if (!error && data && data.length > 0) {
+          return data.map(r => ({
+            date: r.date,
+            leave_type: r.leave_type
+          }));
+        }
+      } catch (e) {
+        console.warn('Supabase weekly leaves fetch warning:', e);
+      }
+    }
+
+    // 2. Fallback to LocalStorage
+    dates.forEach(date => {
+      const localKey = `chronicle_leave_${date}`;
+      const localLeaveVal = localStorage.getItem(localKey);
+      if (localLeaveVal) {
+        leaves.push({
+          date,
+          leave_type: localLeaveVal
+        });
+      }
+    });
+
+    return leaves;
+  };
+
   const handleGenerate = async () => {
     setErrorMessage('');
     setGeneratedContent('');
@@ -355,12 +394,13 @@ export const AISummaryView: React.FC<AISummaryViewProps> = ({ selectedDate }) =>
 
     try {
       const weeklyLogs = await getWeeklyLogsForPrompt();
+      const weeklyLeaves = await getWeeklyLeavesForPrompt();
       
       // Filter out totally empty/unlogged lines
       const activeLogs = weeklyLogs.filter(log => log.task_name && (log.intended_hours > 0 || log.actual_hours > 0));
 
-      if (activeLogs.length === 0) {
-        throw new Error('No daily tasks found for this period. Please add tasks in the Planner first.');
+      if (activeLogs.length === 0 && weeklyLeaves.length === 0) {
+        throw new Error('No daily tasks or leaves found for this period. Please log tasks or leaves in the Planner first.');
       }
 
       let reportText = '';
@@ -374,6 +414,7 @@ export const AISummaryView: React.FC<AISummaryViewProps> = ({ selectedDate }) =>
           },
           body: JSON.stringify({
             logs: activeLogs,
+            leaves: weeklyLeaves,
             tone: selectedTone
           })
         });
@@ -401,6 +442,7 @@ export const AISummaryView: React.FC<AISummaryViewProps> = ({ selectedDate }) =>
             startDate, 
             endDate,
             activeLogs, 
+            weeklyLeaves,
             clientToneMap[selectedTone]
           );
         } else {
@@ -427,7 +469,8 @@ export const AISummaryView: React.FC<AISummaryViewProps> = ({ selectedDate }) =>
             selected_tone: selectedTone,
             stats_snapshot: {
               date_range: `${startDate} to ${endDate}`,
-              total_logs: activeLogs.length
+              total_logs: activeLogs.length,
+              total_leaves: weeklyLeaves.length
             }
           });
         } catch (dbErr) {

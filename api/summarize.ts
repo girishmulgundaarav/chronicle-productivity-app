@@ -17,10 +17,13 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     return res.status(405).json({ error: 'Method not allowed. Use POST.' });
   }
 
-  const { logs, tone } = req.body;
+  const { logs, leaves, tone } = req.body;
 
-  if (!logs || !Array.isArray(logs)) {
-    return res.status(400).json({ error: 'Missing or invalid weekly logs context.' });
+  const logsList = Array.isArray(logs) ? logs : [];
+  const leavesList = Array.isArray(leaves) ? leaves : [];
+
+  if (logsList.length === 0 && leavesList.length === 0) {
+    return res.status(400).json({ error: 'Missing or invalid weekly logs or leaves context.' });
   }
 
   if (!apiKey) {
@@ -60,8 +63,13 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     const selectedTonePrompt = tonePrompts[tone as keyof typeof tonePrompts] || tonePrompts['Professional Manager'];
 
     // Format logs context into bullet items
-    const contextText = logs
+    const contextText = logsList
       .map(t => `- [${t.date}] "${t.task_name}": Planned: ${t.intended_hours}h | Completed: ${t.actual_hours}h | Category: ${t.category || 'None'} | Score: ${t.productivity_score}/5`)
+      .join('\n');
+
+    // Format leaves context into bullet items
+    const leavesText = leavesList
+      .map(l => `- [${l.date}]: Off - ${l.leave_type}`)
       .join('\n');
 
     const promptText = `
@@ -71,13 +79,16 @@ Please construct an executive summary report.
 ${selectedTonePrompt}
 
 ### Week Logs Context:
-${contextText}
+${contextText || 'No tasks logged.'}
+
+### Observed Leaves & Holidays:
+${leavesText || 'None (fully worked period).'}
 
 ### Output Markdown Structure:
 ${tone === 'High-Level Summary' ? 'Provide ONLY the 4-5 bullet points of achievements (one sentence per bullet). Do NOT use words like "contributed" or "advanced". Do NOT include headings, recommendations, introductory text, time metrics, hours, or scores. Output only the plain bullet points.' : `
 1. **Weekly Executive Summary** (General overview of hours & focus ratings)
 2. **Logical Accomplishments Groupings** (Categorized lists of what was completed)
-3. **Coaching Assessment** (Time allocations, focus highlights, and operational friction)
+3. **Coaching Assessment** (Time allocations, focus highlights, leaves/holidays, and operational friction)
 4. **Actionable Recommendations** (3 specific coaching items for next week)
 `}
 `;

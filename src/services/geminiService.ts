@@ -20,10 +20,16 @@ export const isGeminiConfigured = (): boolean => {
   return !!getGeminiApiKey();
 };
 
+export interface DailyLeaveLog {
+  date: string;
+  leave_type: string;
+}
+
 export const generateAISummary = async (
   startDate: string,
   endDate: string,
   tasks: DailyTaskLog[],
+  leaves: DailyLeaveLog[],
   tone: 'professional' | 'encouraging' | 'no-nonsense' | 'high-level'
 ): Promise<string> => {
   const apiKey = getGeminiApiKey();
@@ -38,6 +44,11 @@ export const generateAISummary = async (
       const billableText = t.is_billable ? ' (Billable)' : '';
       return `- [${t.date}] "${t.task_name}": Planned: ${t.intended_hours}h | Completed: ${t.actual_hours}h${categoryText}${billableText} | Score: ${t.productivity_score}/5`;
     })
+    .join('\n');
+
+  // Format daily leaves context
+  const leavesContext = leaves
+    .map(l => `- [${l.date}]: Off - ${l.leave_type}`)
     .join('\n');
 
   const toneGuidelines: Record<typeof tone, string> = {
@@ -58,10 +69,13 @@ export const generateAISummary = async (
   };
 
   const prompt = `
-You are an expert executive coach. Analyze the user's task logs between ${startDate} and ${endDate} and synthesize them.
+You are an expert executive coach. Analyze the user's task logs and leaves between ${startDate} and ${endDate} and synthesize them.
 
 ### Task Logs (${startDate} to ${endDate}):
-${taskLogsContext}
+${taskLogsContext || 'No tasks logged.'}
+
+### Observed Leaves & Holidays:
+${leavesContext || 'None (fully worked period).'}
 
 ### Persona Guideline:
 ${toneGuidelines[tone]}
@@ -69,6 +83,7 @@ ${toneGuidelines[tone]}
 ### Instructions:
 ${tone === 'high-level' ? 'Generate exactly 4 to 5 bullet points (each containing one professional sentence) summarizing the accomplishments. Do not use words like "contributed" or "advanced". Omit all time metrics, hours, and scores. Do not output any headings, subheadings, introductory text, or other text sections.' : `
 - Group tasks logically (e.g. development, operations, alignment).
+- Acknowledge any leaves or holidays observed in this period, explaining how it affected schedules or productivity (do not penalize or coach negatively for off-days).
 - Assess overall achievements in this period.
 - Deliver the response in clean, formatted Markdown.
 - Provide 3 concrete recommendations for next week / next period.

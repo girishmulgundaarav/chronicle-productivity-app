@@ -14,6 +14,8 @@ export const DashboardView: React.FC = () => {
   const [loading, setLoading] = useState(true);
   const [dbData, setDbData] = useState<any[]>([]);
   const [heatmapDataRows, setHeatmapDataRows] = useState<any[]>([]);
+  const [leavesData, setLeavesData] = useState<any[]>([]);
+  const [heatmapLeavesRows, setHeatmapLeavesRows] = useState<any[]>([]);
   const [exportCopied, setExportCopied] = useState(false);
   const [showTable, setShowTable] = useState(false);
   
@@ -51,7 +53,8 @@ export const DashboardView: React.FC = () => {
     actualHours: 0,
     billableHours: 0,
     matchRate: 0,
-    averageProductivity: 0
+    averageProductivity: 0,
+    leavesCount: 0
   });
 
   const daysOfWeek = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
@@ -134,19 +137,30 @@ export const DashboardView: React.FC = () => {
   // Load contribution details for the trailing 16 weeks (Heatmap)
   const loadHeatmapData = useCallback(async () => {
     const dates = getTrailing16WeeksDates();
+    let tasks: any[] = [];
+    let leaves: any[] = [];
+    let supabaseSuccess = false;
     
     if (isSupabaseConfigured()) {
       try {
         const { data: { user } } = await supabase.auth.getUser();
         if (user) {
-          const { data, error } = await supabase
+          const { data: taskData, error: taskError } = await supabase
             .from('daily_tasks')
             .select('*')
             .eq('user_id', user.id)
             .in('date', dates);
-          if (!error && data) {
-            setHeatmapDataRows(data);
-            return;
+          
+          const { data: leaveData, error: leaveError } = await supabase
+            .from('user_leaves')
+            .select('*')
+            .eq('user_id', user.id)
+            .in('date', dates);
+
+          if (!taskError && taskData && !leaveError && leaveData) {
+            tasks = taskData;
+            leaves = leaveData;
+            supabaseSuccess = true;
           }
         }
       } catch (err) {
@@ -155,25 +169,37 @@ export const DashboardView: React.FC = () => {
     }
     
     // LocalStorage Fallback
-    const localRows: any[] = [];
-    dates.forEach(date => {
-      const localKey = `chronicle_tasks_${date}`;
-      const localData = localStorage.getItem(localKey);
-      if (localData) {
-        try {
-          const parsed = JSON.parse(localData);
-          parsed.forEach((item: any) => {
-            localRows.push({
-              date,
-              actual_hours: parseFloat(item.actualHours) || 0
+    if (!supabaseSuccess) {
+      dates.forEach(date => {
+        const localKey = `chronicle_tasks_${date}`;
+        const localData = localStorage.getItem(localKey);
+        if (localData) {
+          try {
+            const parsed = JSON.parse(localData);
+            parsed.forEach((item: any) => {
+              tasks.push({
+                date,
+                actual_hours: parseFloat(item.actualHours) || 0
+              });
             });
-          });
-        } catch (e) {
-          // Ignore parse errors
+          } catch (e) {
+            // Ignore
+          }
         }
-      }
-    });
-    setHeatmapDataRows(localRows);
+
+        const localLeaveKey = `chronicle_leave_${date}`;
+        const localLeaveVal = localStorage.getItem(localLeaveKey);
+        if (localLeaveVal) {
+          leaves.push({
+            date,
+            leave_type: localLeaveVal
+          });
+        }
+      });
+    }
+
+    setHeatmapDataRows(tasks);
+    setHeatmapLeavesRows(leaves);
   }, [getTrailing16WeeksDates]);
 
   const loadWeeklyAnalytics = useCallback(async () => {
@@ -182,33 +208,44 @@ export const DashboardView: React.FC = () => {
 
     if (dates.length === 0) {
       setDbData([]);
+      setLeavesData([]);
       setWeeklyStats({
         intendedHours: 0,
         actualHours: 0,
         billableHours: 0,
         matchRate: 0,
-        averageProductivity: 0
+        averageProductivity: 0,
+        leavesCount: 0
       });
       setLoading(false);
       return;
     }
+
+    let tasks: any[] = [];
+    let leaves: any[] = [];
+    let supabaseSuccess = false;
 
     // 1. Try loading from Supabase first
     if (isSupabaseConfigured()) {
       try {
         const { data: { user } } = await supabase.auth.getUser();
         if (user) {
-          const { data, error } = await supabase
+          const { data: taskData, error: taskError } = await supabase
             .from('daily_tasks')
             .select('*')
             .eq('user_id', user.id)
             .in('date', dates);
 
-          if (!error && data) {
-            setDbData(data);
-            calculateMetrics(data);
-            setLoading(false);
-            return;
+          const { data: leaveData, error: leaveError } = await supabase
+            .from('user_leaves')
+            .select('*')
+            .eq('user_id', user.id)
+            .in('date', dates);
+
+          if (!taskError && taskData && !leaveError && leaveData) {
+            tasks = taskData;
+            leaves = leaveData;
+            supabaseSuccess = true;
           }
         }
       } catch (err) {
@@ -217,32 +254,48 @@ export const DashboardView: React.FC = () => {
     }
 
     // 2. Fallback to LocalStorage
-    const aggregatedLocalRows: any[] = [];
-    dates.forEach((date) => {
-      const localKey = `chronicle_tasks_${date}`;
-      const localData = localStorage.getItem(localKey);
-      if (localData) {
-        try {
-          const parsed = JSON.parse(localData);
-          parsed.forEach((item: any) => {
-            aggregatedLocalRows.push({
-              date,
-              task_name: item.taskName,
-              intended_hours: parseFloat(item.intendedHours) || 0,
-              actual_hours: parseFloat(item.actualHours) || 0,
-              category: item.category,
-              productivity_score: item.productivityScore,
-              is_billable: item.isBillable
+    if (!supabaseSuccess) {
+      const aggregatedLocalRows: any[] = [];
+      const aggregatedLocalLeaves: any[] = [];
+      dates.forEach((date) => {
+        const localKey = `chronicle_tasks_${date}`;
+        const localData = localStorage.getItem(localKey);
+        if (localData) {
+          try {
+            const parsed = JSON.parse(localData);
+            parsed.forEach((item: any) => {
+              aggregatedLocalRows.push({
+                date,
+                task_name: item.taskName,
+                intended_hours: parseFloat(item.intendedHours) || 0,
+                actual_hours: parseFloat(item.actualHours) || 0,
+                category: item.category,
+                productivity_score: item.productivityScore,
+                is_billable: item.isBillable
+              });
             });
-          });
-        } catch (e) {
-          console.error('Error parsing local analytics for date:', date, e);
+          } catch (e) {
+            console.error('Error parsing local analytics for date:', date, e);
+          }
         }
-      }
-    });
 
-    setDbData(aggregatedLocalRows);
-    calculateMetrics(aggregatedLocalRows);
+        const localLeaveKey = `chronicle_leave_${date}`;
+        const localLeaveVal = localStorage.getItem(localLeaveKey);
+        if (localLeaveVal) {
+          aggregatedLocalLeaves.push({
+            date,
+            leave_type: localLeaveVal
+          });
+        }
+      });
+
+      tasks = aggregatedLocalRows;
+      leaves = aggregatedLocalLeaves;
+    }
+
+    setDbData(tasks);
+    setLeavesData(leaves);
+    calculateMetrics(tasks, leaves);
     setLoading(false);
   }, [getTargetDates]);
 
@@ -254,7 +307,7 @@ export const DashboardView: React.FC = () => {
     loadHeatmapData();
   }, [loadHeatmapData]);
 
-  const calculateMetrics = (rows: any[]) => {
+  const calculateMetrics = (rows: any[], leaves: any[]) => {
     let plannedTotal = 0;
     let actualTotal = 0;
     let billableTotal = 0;
@@ -281,7 +334,6 @@ export const DashboardView: React.FC = () => {
 
       // Check task matching alignment (if both intended and actual task exists)
       if (plannedVal > 0 && actualVal > 0) {
-        // Simple heuristic: if difference between intended and actual is within 1 hr, treat as a match
         const difference = Math.abs(plannedVal - actualVal);
         if (difference <= 1) {
           matchedTotal += actualVal;
@@ -294,7 +346,8 @@ export const DashboardView: React.FC = () => {
       actualHours: parseFloat(actualTotal.toFixed(1)),
       billableHours: parseFloat(billableTotal.toFixed(1)),
       matchRate: plannedTotal > 0 ? Math.min(100, Math.round((actualTotal / plannedTotal) * 100)) : 0,
-      averageProductivity: scoreCount > 0 ? parseFloat((scoreSum / scoreCount).toFixed(1)) : 0
+      averageProductivity: scoreCount > 0 ? parseFloat((scoreSum / scoreCount).toFixed(1)) : 0,
+      leavesCount: leaves.length
     });
   };
 
@@ -307,7 +360,6 @@ export const DashboardView: React.FC = () => {
       if (viewMode === 'week') {
         label = dateObj.toLocaleDateString('en-US', { weekday: 'short' });
       } else {
-        // Format as short date like "Jun 18" for month and custom views
         label = dateObj.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
       }
       
@@ -315,8 +367,11 @@ export const DashboardView: React.FC = () => {
       const plannedSum = dayRows.reduce((acc, r) => acc + (parseFloat(r.intended_hours) || 0), 0);
       const actualSum = dayRows.reduce((acc, r) => acc + (parseFloat(r.actual_hours) || 0), 0);
 
+      const leave = leavesData.find(l => l.date === date);
+      const labelSuffix = leave ? ' (Off)' : '';
+
       return {
-        name: label,
+        name: label + labelSuffix,
         Intended: parseFloat(plannedSum.toFixed(1)),
         Actual: parseFloat(actualSum.toFixed(1))
       };
@@ -363,33 +418,56 @@ export const DashboardView: React.FC = () => {
     const weeks = 16;
     const allHeatmapDates = getTrailing16WeeksDates();
     
-    const getIntensity = (weekIdx: number, dayIdx: number) => {
+    const getIntensityAndLeave = (weekIdx: number, dayIdx: number) => {
       const dateIdx = weekIdx * 7 + dayIdx;
       const dateStr = allHeatmapDates[dateIdx];
       if (dateStr) {
         const dayRows = heatmapDataRows.filter(r => r.date === dateStr);
         const totalHours = dayRows.reduce((acc, r) => acc + (parseFloat(r.actual_hours) || 0), 0);
-        if (totalHours === 0) return 0;
-        if (totalHours <= 2) return 1;
-        if (totalHours <= 5) return 2;
-        if (totalHours <= 8) return 3;
-        return 4;
+        const leave = heatmapLeavesRows.find(l => l.date === dateStr);
+
+        let intensity = 0;
+        if (totalHours > 0) {
+          if (totalHours <= 2) intensity = 1;
+          else if (totalHours <= 5) intensity = 2;
+          else if (totalHours <= 8) intensity = 3;
+          else intensity = 4;
+        }
+
+        return {
+          intensity,
+          totalHours,
+          leaveType: leave?.leave_type || null,
+          dateStr
+        };
       }
-      return 0;
+      return { intensity: 0, totalHours: 0, leaveType: null, dateStr: '' };
     };
 
     return daysOfWeek.map((dayName, dIdx) => {
       const cells = Array.from({ length: weeks }).map((_, wIdx) => {
-        return {
-          week: wIdx,
-          intensity: getIntensity(wIdx, dIdx)
-        };
+        return getIntensityAndLeave(wIdx, dIdx);
       });
       return { dayName, cells };
     });
   };
 
-  const getHeatmapCellColor = (intensity: number) => {
+  const getHeatmapCellColor = (intensity: number, leaveType: string | null) => {
+    if (leaveType) {
+      switch (leaveType) {
+        case 'Earned Leave':
+          return 'bg-sky-200 hover:bg-sky-300 border-sky-300/40 text-sky-700';
+        case 'Sick Leave':
+          return 'bg-rose-200 hover:bg-rose-300 border-rose-300/40 text-rose-700';
+        case 'Company Holiday':
+          return 'bg-violet-200 hover:bg-violet-300 border-violet-300/40 text-violet-850';
+        case 'Restricted Holiday':
+          return 'bg-amber-200 hover:bg-amber-300 border-amber-300/40 text-amber-700';
+        default:
+          return 'bg-indigo-200 hover:bg-indigo-300 border-indigo-300/40';
+      }
+    }
+
     switch (intensity) {
       case 0: return 'bg-slate-100 hover:bg-slate-200 border-white/50';
       case 1: return 'bg-emerald-500/15 hover:bg-emerald-500/25 border-emerald-500/5';
@@ -459,19 +537,57 @@ export const DashboardView: React.FC = () => {
   };
 
   const renderTaskTable = () => {
-    if (dbData.length === 0) {
+    if (dbData.length === 0 && leavesData.length === 0) {
       return (
         <div className="bg-white p-8 rounded-2xl border border-theme-border text-center shadow-xs">
-          <p className="text-xs text-brand-slate font-bold">No logs recorded for this selected time window.</p>
+          <p className="text-xs text-brand-slate font-bold">No logs or leaves recorded for this selected time window.</p>
         </div>
       );
     }
 
+    // Build combined table rows
+    const tableRows: any[] = [];
+    
+    // Add tasks
+    dbData.forEach(task => {
+      const leave = leavesData.find(l => l.date === task.date);
+      tableRows.push({
+        ...task,
+        isTask: true,
+        leaveType: leave?.leave_type || null
+      });
+    });
+
+    // Add empty leaves (days with a leave but no tasks logged)
+    leavesData.forEach(leave => {
+      const hasTasks = dbData.some(t => t.date === leave.date);
+      if (!hasTasks) {
+        tableRows.push({
+          date: leave.date,
+          task_name: `Day Off - ${leave.leave_type}`,
+          intended_hours: 0,
+          actual_hours: 0,
+          category: 'Holiday/Leave',
+          productivity_score: 0,
+          is_billable: false,
+          isTask: false,
+          leaveType: leave.leave_type
+        });
+      }
+    });
+
     // Sort logs chronologically by date
-    const sortedData = [...dbData].sort((a, b) => a.date.localeCompare(b.date));
+    const sortedData = tableRows.sort((a, b) => a.date.localeCompare(b.date));
 
     // Category style mapping
     const getCategoryStyles = (cat: string) => {
+      if (cat === 'Holiday/Leave') {
+        return {
+          backgroundColor: '#fef3c7',
+          borderColor: '#fde68a',
+          color: '#d97706'
+        };
+      }
       const match = dynamicCategories.find(c => c.name === cat);
       const color = match ? match.color : '#64748b';
       return {
@@ -482,11 +598,13 @@ export const DashboardView: React.FC = () => {
     };
 
     const getCategoryLabel = (cat: string) => {
+      if (cat === 'Holiday/Leave') return 'Holiday/Leave';
       return cat ? cat.replace('#', '') : 'None';
     };
 
     // Render rating dots out of 5
-    const renderRatingDots = (score: number) => {
+    const renderRatingDots = (score: number, isTask: boolean) => {
+      if (!isTask) return <span className="text-[10px] text-brand-slate">—</span>;
       const activeScore = score || 5; // Fallback default to 5
       return (
         <div className="flex gap-1">
@@ -509,7 +627,7 @@ export const DashboardView: React.FC = () => {
         <div className="p-5 border-b border-theme-border flex justify-between items-center bg-slate-50/50">
           <div>
             <h3 className="font-bold text-foreground text-sm">Detailed Log Ledger</h3>
-            <p className="text-[10px] text-brand-slate">Tabular log breakdown of all activities scheduled within selected time ranges.</p>
+            <p className="text-[10px] text-brand-slate">Tabular log breakdown of all activities and leaves scheduled within selected time ranges.</p>
           </div>
           <span className="text-[10px] font-extrabold text-brand-indigo bg-brand-indigo/5 border border-brand-indigo/10 px-2.5 py-1 rounded-full">
             {sortedData.length} records matching
@@ -521,7 +639,7 @@ export const DashboardView: React.FC = () => {
             <thead>
               <tr className="border-b border-theme-divider bg-slate-50/30 text-[10px] font-bold text-brand-slate uppercase tracking-wider select-none">
                 <th className="py-3.5 px-6">Date</th>
-                <th className="py-3.5 px-6">Task Name</th>
+                <th className="py-3.5 px-6">Task Name / Status</th>
                 <th className="py-3.5 px-6">Hours (Plan / Act)</th>
                 <th className="py-3.5 px-6">Category</th>
                 <th className="py-3.5 px-6">Productivity Rating</th>
@@ -532,15 +650,28 @@ export const DashboardView: React.FC = () => {
                 const dateObj = new Date(row.date + 'T00:00:00');
                 const formattedDate = dateObj.toLocaleDateString('en-US', { month: 'short', day: 'numeric', weekday: 'short' });
                 return (
-                  <tr key={idx} className="hover:bg-slate-50/50 transition-colors">
+                  <tr key={idx} className={`hover:bg-slate-50/50 transition-colors ${!row.isTask ? 'bg-amber-50/5' : ''}`}>
                     <td className="py-3 px-6 text-brand-slate font-bold tracking-tight whitespace-nowrap">{formattedDate}</td>
-                    <td className="py-3 px-6 text-foreground font-semibold max-w-xs truncate" title={row.task_name}>{row.task_name}</td>
+                    <td className="py-3 px-6 text-foreground font-semibold max-w-xs truncate" title={row.task_name}>
+                      <span className="flex items-center gap-1.5 flex-wrap">
+                        {row.task_name}
+                        {row.leaveType && row.isTask && (
+                          <span className="px-1.5 py-0.5 rounded bg-amber-50 text-amber-700 border border-amber-100 text-[8px] font-bold">
+                            Observed on {row.leaveType}
+                          </span>
+                        )}
+                      </span>
+                    </td>
                     <td className="py-3 px-6 whitespace-nowrap">
-                      <div className="flex items-center gap-1.5 font-bold">
-                        <span className="text-slate-450">{row.intended_hours || 0}h</span>
-                        <span className="text-brand-slate font-medium text-[10px]">/</span>
-                        <span className="text-brand-indigo">{row.actual_hours || 0}h</span>
-                      </div>
+                      {row.isTask ? (
+                        <div className="flex items-center gap-1.5 font-bold">
+                          <span className="text-slate-450">{row.intended_hours || 0}h</span>
+                          <span className="text-brand-slate font-medium text-[10px]">/</span>
+                          <span className="text-brand-indigo">{row.actual_hours || 0}h</span>
+                        </div>
+                      ) : (
+                        <span className="text-[10px] text-brand-slate">Off Day</span>
+                      )}
                     </td>
                     <td className="py-3 px-6 whitespace-nowrap">
                       <span 
@@ -550,7 +681,7 @@ export const DashboardView: React.FC = () => {
                         {getCategoryLabel(row.category)}
                       </span>
                     </td>
-                    <td className="py-3 px-6">{renderRatingDots(row.productivity_score)}</td>
+                    <td className="py-3 px-6">{renderRatingDots(row.productivity_score, row.isTask)}</td>
                   </tr>
                 );
               })}
@@ -736,7 +867,9 @@ export const DashboardView: React.FC = () => {
         <div className="bg-white p-5 rounded-2xl border border-theme-border shadow-xs">
           <div className="text-[10px] font-bold text-brand-slate uppercase tracking-wider mb-1">Time Completed</div>
           <div className="text-2xl font-black text-foreground">{weeklyStats.actualHours} hrs</div>
-          <div className="text-[10px] text-brand-slate font-medium mt-1">Out of {weeklyStats.intendedHours} planned</div>
+          <div className="text-[10px] text-brand-slate font-medium mt-1">
+            Out of {weeklyStats.intendedHours} planned {weeklyStats.leavesCount > 0 && `• ${weeklyStats.leavesCount} day${weeklyStats.leavesCount === 1 ? '' : 's'} off`}
+          </div>
         </div>
 
         <div className="bg-white p-5 rounded-2xl border border-theme-border shadow-xs">
@@ -869,6 +1002,11 @@ export const DashboardView: React.FC = () => {
             <div className="w-3.5 h-3.5 rounded-md bg-emerald-500/60 border border-emerald-500/20" />
             <div className="w-3.5 h-3.5 rounded-md bg-emerald-600" />
             <span>8h+</span>
+            <span className="ml-2 pl-2 border-l border-slate-200">Leaves:</span>
+            <div className="w-3.5 h-3.5 rounded-md bg-sky-200 border border-sky-300/40" title="Earned Leave" />
+            <div className="w-3.5 h-3.5 rounded-md bg-rose-200 border border-rose-300/40" title="Sick Leave" />
+            <div className="w-3.5 h-3.5 rounded-md bg-violet-200 border border-violet-300/40" title="Company Holiday" />
+            <div className="w-3.5 h-3.5 rounded-md bg-amber-200 border border-amber-300/40" title="Restricted Holiday" />
           </div>
         </div>
 
@@ -896,8 +1034,12 @@ export const DashboardView: React.FC = () => {
                         return (
                           <div
                             key={rIdx}
-                            className={`w-4 h-4 rounded-sm border transition-all duration-200 cursor-pointer ${getHeatmapCellColor(cell.intensity)}`}
-                            title={`Week ${wIdx + 1}, ${row.dayName}: Level ${cell.intensity}`}
+                            className={`w-4 h-4 rounded-sm border transition-all duration-200 cursor-pointer ${getHeatmapCellColor(cell.intensity, cell.leaveType)}`}
+                            title={
+                              cell.leaveType 
+                                ? `${cell.dateStr}: ${cell.leaveType} (Off)${cell.totalHours > 0 ? ` - worked ${cell.totalHours}h` : ''}`
+                                : `${cell.dateStr}: ${cell.totalHours}h logged`
+                            }
                           />
                         );
                       })}
