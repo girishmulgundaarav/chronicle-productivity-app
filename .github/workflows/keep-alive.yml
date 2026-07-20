@@ -1,0 +1,34 @@
+name: Keep Supabase Awake
+
+on:
+  schedule:
+    # Runs at 00:00 every 3 days (well within Supabase's 7-day inactivity limit)
+    - cron: '0 0 */3 * *'
+  workflow_dispatch: # Allows manual triggering from the GitHub actions tab
+
+jobs:
+  ping-supabase:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Ping Supabase REST API
+        run: |
+          if [ -z "${{ secrets.SUPABASE_URL }}" ] || [ -z "${{ secrets.SUPABASE_ANON_KEY }}" ]; then
+            echo "Error: SUPABASE_URL or SUPABASE_ANON_KEY secret is not set."
+            exit 1
+          fi
+          
+          echo "Pinging Supabase database to prevent pause..."
+          response=$(curl -s -o /dev/null -w "%{http_code}" \
+            -X GET "${{ secrets.SUPABASE_URL }}/rest/v1/profiles?limit=1" \
+            -H "apikey: ${{ secrets.SUPABASE_ANON_KEY }}" \
+            -H "Authorization: Bearer ${{ secrets.SUPABASE_ANON_KEY }}")
+            
+          echo "Response code: $response"
+          
+          if [ "$response" -eq 200 ] || [ "$response" -eq 204 ]; then
+            echo "Successfully pinged Supabase!"
+          else
+            echo "Warning: Pinging returned HTTP code $response. Check if your secrets or table name are correct."
+            # We don't exit with failure so it doesn't spam repository owners with failed action emails
+            # if they just haven't set up the secrets yet.
+          fi
