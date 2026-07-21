@@ -463,6 +463,8 @@ export const DashboardView: React.FC = () => {
           return 'bg-violet-200 hover:bg-violet-300 border-violet-300/40 text-violet-850';
         case 'Restricted Holiday':
           return 'bg-amber-200 hover:bg-amber-300 border-amber-300/40 text-amber-700';
+        case 'Weekend Holiday':
+          return 'bg-slate-200 hover:bg-slate-300 border-slate-300/40 text-slate-700';
         default:
           return 'bg-indigo-200 hover:bg-indigo-300 border-indigo-300/40';
       }

@@ -748,7 +748,7 @@ export const PlannerView: React.FC<PlannerViewProps> = ({ selectedDate, setSelec
             >
               Working Day
             </button>
-            {(['Sick Leave', 'Earned Leave', 'Restricted Holiday', 'Company Holiday'] as const).map((type) => {
+            {(['Sick Leave', 'Earned Leave', 'Restricted Holiday', 'Company Holiday', 'Weekend Holiday'] as const).map((type) => {
               const isSelected = leaveType === type;
               return (
                 <button
@@ -774,7 +774,8 @@ export const PlannerView: React.FC<PlannerViewProps> = ({ selectedDate, setSelec
           leaveType === 'Earned Leave' ? 'from-emerald-500/10 via-teal-500/5 to-transparent border-emerald-500/20 text-emerald-800' :
           leaveType === 'Sick Leave' ? 'from-rose-500/10 via-orange-500/5 to-transparent border-rose-500/20 text-rose-800' :
           leaveType === 'Company Holiday' ? 'from-indigo-500/10 via-purple-500/5 to-transparent border-indigo-500/20 text-indigo-850' :
-          'from-amber-500/10 via-yellow-500/5 to-transparent border-amber-500/20 text-amber-800'
+          leaveType === 'Weekend Holiday' ? 'from-slate-500/10 via-slate-400/5 to-transparent border-slate-500/20 text-slate-800' :
+          'from-amber-500/10 via-orange-500/5 to-transparent border-amber-500/20 text-amber-800'
         }`}>
           <div className="absolute top-0 right-0 w-32 h-32 bg-white/5 rounded-full blur-2xl pointer-events-none" />
           <div className="flex items-start gap-4">
@@ -782,17 +783,20 @@ export const PlannerView: React.FC<PlannerViewProps> = ({ selectedDate, setSelec
               leaveType === 'Earned Leave' ? 'bg-emerald-50 text-emerald-600' :
               leaveType === 'Sick Leave' ? 'bg-rose-50 text-rose-600' :
               leaveType === 'Company Holiday' ? 'bg-indigo-50 text-brand-indigo' :
+              leaveType === 'Weekend Holiday' ? 'bg-slate-100 text-slate-600' :
               'bg-amber-50 text-amber-600'
             }`}>
               {leaveType === 'Earned Leave' ? '🌴' :
                leaveType === 'Sick Leave' ? '🏥' :
-               leaveType === 'Company Holiday' ? '🎉' : '🗓️'}
+               leaveType === 'Company Holiday' ? '🎉' :
+               leaveType === 'Weekend Holiday' ? '🏖️' : '🗓️'}
             </div>
             <div className="space-y-1">
               <h4 className="text-sm font-bold text-slate-800">
                 {leaveType === 'Earned Leave' ? 'You are on Earned Leave today!' :
                  leaveType === 'Sick Leave' ? 'Logged as Sick Leave' :
-                 leaveType === 'Company Holiday' ? 'Official Company Holiday observed' : 'Restricted Holiday observed'}
+                 leaveType === 'Company Holiday' ? 'Official Company Holiday observed' :
+                 leaveType === 'Weekend Holiday' ? 'Weekend Holiday' : 'Restricted Holiday observed'}
               </h4>
               <p className="text-xs text-brand-slate leading-relaxed">
                 This day is marked as off. You do not need to log regular tasks.
@@ -807,11 +811,11 @@ export const PlannerView: React.FC<PlannerViewProps> = ({ selectedDate, setSelec
 
       {/* Quick Add Presets */}
       {!leaveType && (
-        <div className="flex items-center bg-slate-50 border border-theme-border rounded-xl p-3 w-full overflow-hidden select-none animate-fade-in">
-          <span className="text-[10px] font-extrabold text-brand-slate uppercase tracking-wider mr-2 shrink-0 flex items-center gap-1">
+        <div className="flex flex-col sm:flex-row sm:items-center items-start gap-2 sm:gap-3 bg-slate-50 border border-theme-border rounded-xl p-3 w-full select-none animate-fade-in">
+          <span className="text-[10px] font-extrabold text-brand-slate uppercase tracking-wider shrink-0 flex items-center gap-1">
             <Plus className="w-3.5 h-3.5 text-brand-indigo" /> Presets:
           </span>
-          <div className="flex overflow-x-auto whitespace-nowrap gap-2 scrollbar-none py-0.5 w-full">
+          <div className="flex flex-wrap gap-2 py-0.5 w-full">
             {TASK_PRESETS.map((preset) => (
               <button
                 key={preset.taskName}
